@@ -1,0 +1,37 @@
+{
+  "name": "arquitecturabase",
+  "version": "1.0.0",
+  "description": "Proyecto Procesos de Ingeniería del Software",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "jasmine servidor/modeloSpec.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ralextero/arquitecturabase.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Ralextero/arquitecturabase/issues"
+  },
+  "homepage": "https://github.com/Ralextero/arquitecturabase#readme",
+  "dependencies": {
+    "@google-cloud/secret-manager": "^6.1.1",
+    "bcrypt": "^6.0.0",
+    "cookie-session": "^2.1.1",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "http": "^0.0.1-security",
+    "jasmine": "^5.12.0",
+    "mongodb": "4.4.0",
+    "nodemailer": "^7.0.10",
+    "passport": "0.5.3",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-google-one-tap": "^1.0.1",
+    "passport-local": "^1.0.0",
+    "socket.io": "^4.8.1",
+    "stripe": "^20.1.0"
+  }
+}
