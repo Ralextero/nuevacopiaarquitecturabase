@@ -2097,6 +2097,23 @@ h1, h2, h3, h4, h5, .arcane-title, .section-title {
     display: none;
 }
 
+/* === v2.0: Ultimate sin maná (visual diferenciado) === */
+.btn-ultimate.no-mana {
+    background: linear-gradient(135deg, #3a2a4a 0%, #2a1a3a 100%);
+    border-color: #5a3a6a;
+    color: #9a7aaa;
+    opacity: 0.7;
+}
+
+.btn-ultimate.no-mana::after {
+    content: '⚡';
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    font-size: 12px;
+    opacity: 0.6;
+}
+
 /* Contenedor de botones de batalla actualizado */
 .battle-actions {
     display: flex;
@@ -3278,6 +3295,12 @@ h1, h2, h3, h4, h5, .arcane-title, .section-title {
 .stat-bar.def-bar {
     background: linear-gradient(90deg, #4a9eff, #00bfff);
     box-shadow: 0 0 10px rgba(74, 158, 255, 0.5);
+}
+
+/* === v2.0: Barra de velocidad === */
+.stat-bar.vel-bar {
+    background: linear-gradient(90deg, #00ff88, #00ffcc);
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
 }
 
 .stat-value {

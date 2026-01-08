@@ -1451,6 +1451,16 @@ function ControlWeb() {
                                 <div class="stat-value">${personaje.stats.defensa}</div>
                             </div>
                             
+                            <!-- === v2.0: Velocidad === -->
+                            <div class="stat-row">
+                                <div class="stat-icon">💨</div>
+                                <div class="stat-label">VEL</div>
+                                <div class="stat-bar-container">
+                                    <div class="stat-bar vel-bar" style="width: ${Math.min((personaje.stats.velocidad || 10) / 30 * 100, 100)}%"></div>
+                                </div>
+                                <div class="stat-value">${personaje.stats.velocidad || 10}</div>
+                            </div>
+                            
                             <!-- Información de evolución -->
                             <div class="evolution-section">
                                 <h4>⭐ Evolución</h4>
@@ -2755,28 +2765,31 @@ function ControlWeb() {
         $('#btnDefend').prop('disabled', false);
         $('#btnConfirmAttack').prop('disabled', true);
         
-        // === v2.0: Actualizar botón Ultimate según maná ===
+        // === v2.0 FIX: Actualizar botón Ultimate según maná (siempre visible, deshabilitar si no tiene maná) ===
         const charElement = $(`#player-char-${index}`);
         const mana = parseInt(charElement.data('mana')) || 0;
         const manaMax = parseInt(charElement.data('mana-max')) || 4;
         
+        // Siempre mostrar el botón, pero deshabilitado hasta seleccionar objetivo
+        $('#btnUltimate').show();
         if (mana >= manaMax) {
-            $('#btnUltimate').show().prop('disabled', true); // Habilitar al seleccionar objetivo
+            // Tiene maná para ultimate, pero necesita objetivo primero
+            $('#btnUltimate').removeClass('no-mana').prop('disabled', true).attr('title', 'Selecciona un objetivo');
         } else {
-            $('#btnUltimate').hide();
+            // No tiene maná suficiente
+            $('#btnUltimate').addClass('no-mana').prop('disabled', true).attr('title', `Maná: ${mana}/${manaMax}`);
         }
     };
 
     // === v2.0: Actualizar botones de acción según maná del equipo ===
     this.actualizarBotonesAccion = function(equipo) {
-        // Por defecto ocultar Ultimate
+        // Crear botón Ultimate si no existe
         if (!$('#btnUltimate').length) {
-            // Crear botón Ultimate si no existe
             $('#battleActions').find('.battle-actions-row').remove();
             const actionsHTML = `
                 <div class="battle-actions-row">
                     <button class="btn-attack" id="btnConfirmAttack" disabled>⚔️ ATACAR</button>
-                    <button class="btn-ultimate" id="btnUltimate" disabled style="display:none;">🌟 ULTIMATE</button>
+                    <button class="btn-ultimate" id="btnUltimate" disabled>🌟 ULTIMATE</button>
                 </div>
                 <button class="btn-defend" id="btnDefend" disabled>🛡️ DEFENDER</button>
             `;
@@ -2791,9 +2804,9 @@ function ControlWeb() {
             const manaMax = atacante.manaMax || 4;
             
             if (mana >= manaMax && atacante.estado !== 'derrotado') {
-                $('#btnUltimate').show();
+                $('#btnUltimate').removeClass('no-mana').attr('title', 'Selecciona un objetivo');
             } else {
-                $('#btnUltimate').hide();
+                $('#btnUltimate').addClass('no-mana').attr('title', `Maná: ${mana}/${manaMax}`);
             }
         }
     };
@@ -2811,13 +2824,15 @@ function ControlWeb() {
         // Habilitar botón atacar
         $('#btnConfirmAttack').prop('disabled', false);
         
-        // === v2.0: Habilitar Ultimate si el atacante tiene maná completo ===
+        // === v2.0 FIX: Habilitar Ultimate solo si tiene maná completo ===
         const charElement = $(`#player-char-${this.atacanteSeleccionado}`);
         const mana = parseInt(charElement.data('mana')) || 0;
         const manaMax = parseInt(charElement.data('mana-max')) || 4;
         
         if (mana >= manaMax) {
-            $('#btnUltimate').prop('disabled', false);
+            $('#btnUltimate').prop('disabled', false).attr('title', 'Usar Ultimate');
+        } else {
+            $('#btnUltimate').prop('disabled', true);
         }
     };
 
@@ -2948,6 +2963,18 @@ function ControlWeb() {
         const miJugador = estadoMesa.jugadores.find(j => j.nick === ws.nick);
         const rival = estadoMesa.jugadores.find(j => j.nick !== ws.nick);
         
+        // === v2.0 FIX: Manejar personaje que no puede actuar por estado ===
+        if (datos.noPuedeActuar) {
+            const razonTexto = {
+                'congelado': '❄️ ¡Congelado! No puede actuar',
+                'aturdido': '💫 ¡Aturdido! No puede actuar',
+                'paralizado': '⚡ ¡Paralizado! No puede actuar',
+                'dormido': '💤 ¡Dormido! No puede actuar'
+            };
+            const mensaje = razonTexto[datos.razon] || '⛔ No puede actuar';
+            this.agregarLogEstados([{ mensaje: `${datos.atacante.nombre} ${mensaje}` }]);
+        }
+        
         // Añadir al log
         this.agregarLog(datos);
         
@@ -2962,6 +2989,11 @@ function ControlWeb() {
         }
         if (datos.pasivaDefensorEfectos && datos.pasivaDefensorEfectos.length > 0) {
             this.agregarLogPasivas(datos.pasivaDefensorEfectos);
+        }
+        
+        // === v2.0: Mostrar efectos de inicio de turno ===
+        if (datos.efectosInicioTurno && datos.efectosInicioTurno.length > 0) {
+            this.agregarLogPasivas(datos.efectosInicioTurno);
         }
         
         // Animación de daño si fue ataque
@@ -3033,12 +3065,47 @@ function ControlWeb() {
         const miJugador = estadoMesa.jugadores.find(j => j.nick === ws.nick);
         const rival = estadoMesa.jugadores.find(j => j.nick !== ws.nick);
         
+        // === v2.0 FIX: Manejar personaje que no puede actuar por estado ===
+        if (datos.noPuedeActuar) {
+            const razonTexto = {
+                'congelado': '❄️ ¡Congelado! No puede usar Ultimate',
+                'aturdido': '💫 ¡Aturdido! No puede usar Ultimate',
+                'paralizado': '⚡ ¡Paralizado! No puede usar Ultimate',
+                'dormido': '💤 ¡Dormido! No puede usar Ultimate'
+            };
+            const mensaje = razonTexto[datos.razon] || '⛔ No puede actuar';
+            this.agregarLogEstados([{ mensaje: `${datos.atacante.nombre} ${mensaje}` }]);
+            
+            // Re-renderizar y continuar
+            this.atacanteSeleccionado = null;
+            this.objetivoSeleccionado = null;
+            this.esMiTurno = estadoMesa.turno === ws.nick;
+            this.equipoJugadorActual = miJugador.equipo;
+            this.renderizarEquipo(miJugador.equipo, 'playerTeam', true);
+            this.renderizarEquipo(rival.equipo, 'enemyTeam', false);
+            if (estadoMesa.turno) {
+                this.actualizarIndicadorTurno(estadoMesa.turno);
+            }
+            this.configurarBotonesBatalla();
+            return;
+        }
+        
         // Añadir al log con estilo especial
         this.agregarLogUltimate(datos);
+        
+        // === v2.0: Mostrar efectos de pasivas del atacante ===
+        if (datos.pasivaAtacanteEfectos && datos.pasivaAtacanteEfectos.length > 0) {
+            this.agregarLogPasivas(datos.pasivaAtacanteEfectos);
+        }
         
         // === v2.0: Mostrar efectos de estado en el log ===
         if (datos.efectosEstados && datos.efectosEstados.length > 0) {
             this.agregarLogEstados(datos.efectosEstados);
+        }
+        
+        // === v2.0: Mostrar efectos de inicio de turno ===
+        if (datos.efectosInicioTurno && datos.efectosInicioTurno.length > 0) {
+            this.agregarLogPasivas(datos.efectosInicioTurno);
         }
         
         // Animaciones especiales para cada efecto

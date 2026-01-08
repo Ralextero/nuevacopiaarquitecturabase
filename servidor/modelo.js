@@ -133,6 +133,26 @@ function Sistema(test) {
             return { error: true, mensaje: "Tu personaje está derrotado" };
         }
         
+        // === v2.0: Verificar si puede actuar (estados de control) ===
+        if (!this.puedeActuar(atacante)) {
+            let estadoImpide = atacante.estados?.find(e => 
+                ["congelado", "aturdido", "paralizado", "dormido"].includes(e.tipo)
+            );
+            
+            // Consumir turno sin actuar
+            partida.turno = defensorJugador.nick;
+            partida.turnoInicio = Date.now();
+            
+            return {
+                accion: "ultimate",
+                noPuedeActuar: true,
+                razon: estadoImpide ? estadoImpide.tipo : "estado",
+                atacante: { nick: nick, indice: indiceAtacante, nombre: atacante.nombre },
+                turno: partida.turno,
+                estadoMesa: this.obtenerEstadoMesa(codigo)
+            };
+        }
+        
         // Validar que tenga ultimate
         if (!atacante.ultimate) {
             return { error: true, mensaje: "Este personaje no tiene ultimate" };
@@ -146,6 +166,23 @@ function Sistema(test) {
         
         // Consumir maná
         atacante.mana -= costeUltimate;
+        
+        // === v2.0: Obtener buffs de pasivas para aplicar a daño de Ultimate ===
+        let pasivaAtacante = this.checkPasiva(atacante, "atacar", {
+            objetivo: objetivo,
+            equipoAliado: atacanteJugador.equipo
+        });
+        
+        // Calcular multiplicador de daño por buffs de pasiva
+        let multiplicadorPasiva = 1;
+        if (pasivaAtacante && pasivaAtacante.aplicada) {
+            if (pasivaAtacante.multiplicadorAtaque) {
+                multiplicadorPasiva *= pasivaAtacante.multiplicadorAtaque;
+            }
+            if (pasivaAtacante.bonusDanio) {
+                multiplicadorPasiva *= (1 + pasivaAtacante.bonusDanio);
+            }
+        }
         
         let codigoEfecto = atacante.ultimate.efecto;
         let equipoAliado = atacanteJugador.equipo;
@@ -170,71 +207,73 @@ function Sistema(test) {
         switch (codigoEfecto) {
             // ========== EFECTOS DE DAÑO ==========
             case "dmg_x2": {
-                // Daño = Ataque * 2
+                // Daño = Ataque * 2 * multiplicador pasiva
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 2);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 2 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 resultado.efectos.push({
                     tipo: "danio",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "dmg_piercing": {
-                // Daño = Ataque * 1.5 (ignora defensa)
+                // Daño = Ataque * 1.5 (ignora defensa) * multiplicador pasiva
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 1.5);
-                this.aplicarDanioDirecto(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanioDirecto(objetivo, danio);
                 resultado.efectos.push({
                     tipo: "danio_perforante",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "dmg_x3_burn": {
-                // Daño = Ataque * 3 + Estado 'Quemado'
+                // Daño = Ataque * 3 * multiplicador pasiva + Estado 'Quemado'
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 3);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 3 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 objetivo.estados = objetivo.estados || [];
                 objetivo.estados.push({ tipo: "quemado", duracion: 3 });
                 resultado.efectos.push({
                     tipo: "danio_quemadura",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     estadoAplicado: "quemado",
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "nuke_refund": {
-                // Daño = Ataque * 4. Si mata, +2 maná
+                // Daño = Ataque * 4 * multiplicador pasiva. Si mata, +2 maná
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 4);
-                let vidaAntes = objetivo.vidaActual;
-                this.aplicarDanio(objetivo, danio);
-                let mato = objetivo.estado === "derrotado";
+                let danio = Math.floor(atacante.ataque * 4 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
+                let mato = objetivo.estado === "derrotado" && !resDanio.revivido;
                 if (mato) {
                     atacante.mana = Math.min(atacante.mana + 2, atacante.manaMax);
                 }
@@ -242,54 +281,67 @@ function Sistema(test) {
                     tipo: "nuke",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     vidaRestante: objetivo.vidaActual,
                     derrotado: mato,
+                    revivido: resDanio.revivido,
                     manaRecuperado: mato ? 2 : 0
                 });
                 break;
             }
             
             case "crit_guaranteed": {
-                // Daño = Ataque * 2.2 (crítico asegurado)
+                // Daño = Ataque * 2.2 * multiplicador pasiva (crítico asegurado)
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 2.2);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 2.2 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 resultado.efectos.push({
                     tipo: "critico",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "true_dmg": {
-                // Daño = Ataque * 3 (ignora todo)
+                // Daño = Ataque * 3 * multiplicador pasiva (ignora todo)
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 3);
-                this.aplicarDanioDirecto(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 3 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanioDirecto(objetivo, danio);
                 resultado.efectos.push({
                     tipo: "danio_verdadero",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "hp_to_1": {
-                // La vida del enemigo pasa a 1
+                // La vida del enemigo pasa a 1 (verifica invulnerabilidad)
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
+                }
+                // Verificar invulnerabilidad para hp_to_1
+                if (this.tieneEstado(objetivo, "invulnerable")) {
+                    resultado.efectos.push({
+                        tipo: "bloqueado",
+                        objetivo: objetivo.nombre,
+                        indice: indiceObjetivo,
+                        mensaje: `${objetivo.nombre} es invulnerable!`
+                    });
+                    break;
                 }
                 let danio = objetivo.vidaActual - 1;
                 objetivo.vidaActual = 1;
@@ -326,18 +378,19 @@ function Sistema(test) {
             
             // ========== EFECTOS DE ÁREA (AoE) ==========
             case "aoe_light": {
-                // Daño = Ataque * 1.5 a TODOS los enemigos
-                let danioBase = Math.floor(atacante.ataque * 1.5);
+                // Daño = Ataque * 1.5 * multiplicador pasiva a TODOS los enemigos
+                let danioBase = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
                 equipoRival.forEach((enemigo, idx) => {
                     if (enemigo.estado !== "derrotado") {
-                        this.aplicarDanio(enemigo, danioBase);
+                        let resDanio = this.aplicarDanio(enemigo, danioBase);
                         resultado.efectos.push({
                             tipo: "aoe_danio",
                             objetivo: enemigo.nombre,
                             indice: idx,
-                            danio: danioBase,
+                            danio: resDanio.danioReal,
                             vidaRestante: enemigo.vidaActual,
-                            derrotado: enemigo.estado === "derrotado"
+                            derrotado: enemigo.estado === "derrotado",
+                            revivido: resDanio.revivido
                         });
                     }
                 });
@@ -345,18 +398,19 @@ function Sistema(test) {
             }
             
             case "aoe_heavy": {
-                // Daño = Ataque * 2.5 a TODOS
-                let danioBase = Math.floor(atacante.ataque * 2.5);
+                // Daño = Ataque * 2.5 * multiplicador pasiva a TODOS
+                let danioBase = Math.floor(atacante.ataque * 2.5 * multiplicadorPasiva);
                 equipoRival.forEach((enemigo, idx) => {
                     if (enemigo.estado !== "derrotado") {
-                        this.aplicarDanio(enemigo, danioBase);
+                        let resDanio = this.aplicarDanio(enemigo, danioBase);
                         resultado.efectos.push({
                             tipo: "aoe_danio_pesado",
                             objetivo: enemigo.nombre,
                             indice: idx,
-                            danio: danioBase,
+                            danio: resDanio.danioReal,
                             vidaRestante: enemigo.vidaActual,
-                            derrotado: enemigo.estado === "derrotado"
+                            derrotado: enemigo.estado === "derrotado",
+                            revivido: resDanio.revivido
                         });
                     }
                 });
@@ -364,11 +418,11 @@ function Sistema(test) {
             }
             
             case "aoe_freeze": {
-                // Daño a todos + 50% prob. de 'Congelar'
-                let danioBase = Math.floor(atacante.ataque * 1.8);
+                // Daño a todos * multiplicador pasiva + 50% prob. de 'Congelar'
+                let danioBase = Math.floor(atacante.ataque * 1.8 * multiplicadorPasiva);
                 equipoRival.forEach((enemigo, idx) => {
                     if (enemigo.estado !== "derrotado") {
-                        this.aplicarDanio(enemigo, danioBase);
+                        let resDanio = this.aplicarDanio(enemigo, danioBase);
                         let congelado = Math.random() < 0.5;
                         if (congelado && enemigo.estado !== "derrotado") {
                             enemigo.estados = enemigo.estados || [];
@@ -378,10 +432,11 @@ function Sistema(test) {
                             tipo: "aoe_congelacion",
                             objetivo: enemigo.nombre,
                             indice: idx,
-                            danio: danioBase,
+                            danio: resDanio.danioReal,
                             congelado: congelado,
                             vidaRestante: enemigo.vidaActual,
-                            derrotado: enemigo.estado === "derrotado"
+                            derrotado: enemigo.estado === "derrotado",
+                            revivido: resDanio.revivido
                         });
                     }
                 });
@@ -389,21 +444,22 @@ function Sistema(test) {
             }
             
             case "aoe_paralyze": {
-                // Daño AoE y paraliza
-                let danioBase = Math.floor(atacante.ataque * 1.6);
+                // Daño AoE * multiplicador pasiva y paraliza
+                let danioBase = Math.floor(atacante.ataque * 1.6 * multiplicadorPasiva);
                 equipoRival.forEach((enemigo, idx) => {
                     if (enemigo.estado !== "derrotado") {
-                        this.aplicarDanio(enemigo, danioBase);
+                        let resDanio = this.aplicarDanio(enemigo, danioBase);
                         enemigo.estados = enemigo.estados || [];
                         enemigo.estados.push({ tipo: "paralizado", duracion: 1 });
                         resultado.efectos.push({
                             tipo: "aoe_paralisis",
                             objetivo: enemigo.nombre,
                             indice: idx,
-                            danio: danioBase,
+                            danio: resDanio.danioReal,
                             paralizado: true,
                             vidaRestante: enemigo.vidaActual,
-                            derrotado: enemigo.estado === "derrotado"
+                            derrotado: enemigo.estado === "derrotado",
+                            revivido: resDanio.revivido
                         });
                     }
                 });
@@ -411,21 +467,21 @@ function Sistema(test) {
             }
             
             case "aoe_mana_drain": {
-                // Daño a todos + Maná de enemigos a 0
-                let danioBase = Math.floor(atacante.ataque * 1.5);
+                // Daño a todos * multiplicador pasiva + Maná de enemigos a 0
+                let danioBase = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
                 equipoRival.forEach((enemigo, idx) => {
                     if (enemigo.estado !== "derrotado") {
-                        this.aplicarDanio(enemigo, danioBase);
+                        let resDanio = this.aplicarDanio(enemigo, danioBase);
                         let manaRobado = enemigo.mana;
                         enemigo.mana = 0;
                         resultado.efectos.push({
                             tipo: "aoe_robo_mana",
                             objetivo: enemigo.nombre,
                             indice: idx,
-                            danio: danioBase,
+                            danio: resDanio.danioReal,
                             manaRobado: manaRobado,
                             vidaRestante: enemigo.vidaActual,
-                            derrotado: enemigo.estado === "derrotado"
+                            derrotado: enemigo.estado === "derrotado",
                         });
                     }
                 });
@@ -433,21 +489,22 @@ function Sistema(test) {
             }
             
             case "aoe_cleanse": {
-                // Daño AoE y quita buffs
-                let danioBase = Math.floor(atacante.ataque * 2);
+                // Daño AoE * multiplicador pasiva y quita buffs
+                let danioBase = Math.floor(atacante.ataque * 2 * multiplicadorPasiva);
                 equipoRival.forEach((enemigo, idx) => {
                     if (enemigo.estado !== "derrotado") {
-                        this.aplicarDanio(enemigo, danioBase);
+                        let resDanio = this.aplicarDanio(enemigo, danioBase);
                         enemigo.buffs = [];
                         enemigo.escudo = 0;
                         resultado.efectos.push({
                             tipo: "aoe_limpieza",
                             objetivo: enemigo.nombre,
                             indice: idx,
-                            danio: danioBase,
+                            danio: resDanio.danioReal,
                             buffsEliminados: true,
                             vidaRestante: enemigo.vidaActual,
-                            derrotado: enemigo.estado === "derrotado"
+                            derrotado: enemigo.estado === "derrotado",
+                            revivido: resDanio.revivido
                         });
                     }
                 });
@@ -455,21 +512,22 @@ function Sistema(test) {
             }
             
             case "aoe_blind": {
-                // Daña y ciega AoE
-                let danioBase = Math.floor(atacante.ataque * 1.8);
+                // Daña y ciega AoE * multiplicador pasiva
+                let danioBase = Math.floor(atacante.ataque * 1.8 * multiplicadorPasiva);
                 equipoRival.forEach((enemigo, idx) => {
                     if (enemigo.estado !== "derrotado") {
-                        this.aplicarDanio(enemigo, danioBase);
+                        let resDanio = this.aplicarDanio(enemigo, danioBase);
                         enemigo.estados = enemigo.estados || [];
                         enemigo.estados.push({ tipo: "cegado", duracion: 2 });
                         resultado.efectos.push({
                             tipo: "aoe_ceguera",
                             objetivo: enemigo.nombre,
                             indice: idx,
-                            danio: danioBase,
+                            danio: resDanio.danioReal,
                             cegado: true,
                             vidaRestante: enemigo.vidaActual,
-                            derrotado: enemigo.estado === "derrotado"
+                            derrotado: enemigo.estado === "derrotado",
+                            revivido: resDanio.revivido
                         });
                     }
                 });
@@ -528,17 +586,18 @@ function Sistema(test) {
             }
             
             case "dmg_heal_team": {
-                // Daño normal + Cura equipo 30% del ataque
+                // Daño normal * multiplicador pasiva + Cura equipo 30% del ataque
                 if (objetivo && objetivo.estado !== "derrotado") {
-                    let danio = Math.floor(atacante.ataque * 1.5);
-                    this.aplicarDanio(objetivo, danio);
+                    let danio = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
+                    let resDanio = this.aplicarDanio(objetivo, danio);
                     resultado.efectos.push({
                         tipo: "danio",
                         objetivo: objetivo.nombre,
                         indice: indiceObjetivo,
-                        danio: danio,
+                        danio: resDanio.danioReal,
                         vidaRestante: objetivo.vidaActual,
-                        derrotado: objetivo.estado === "derrotado"
+                        derrotado: objetivo.estado === "derrotado",
+                        revivido: resDanio.revivido
                     });
                 }
                 // Curar equipo
@@ -613,81 +672,85 @@ function Sistema(test) {
             
             // ========== EFECTOS ESPECIALES ==========
             case "dmg_blind": {
-                // Daño y reduce precisión
+                // Daño * multiplicador pasiva y reduce precisión
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 1.5);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 objetivo.estados = objetivo.estados || [];
                 objetivo.estados.push({ tipo: "cegado", duracion: 2 });
                 resultado.efectos.push({
                     tipo: "danio_ceguera",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     cegado: true,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "dmg_stun": {
-                // Daño y aturde 1 turno
+                // Daño * multiplicador pasiva y aturde 1 turno
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 1.5);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 objetivo.estados = objetivo.estados || [];
                 objetivo.estados.push({ tipo: "aturdido", duracion: 1 });
                 resultado.efectos.push({
                     tipo: "danio_aturdimiento",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     aturdido: true,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "dmg_shieldbreak": {
-                // Daño alto, rompe escudos
+                // Daño alto * multiplicador pasiva, rompe escudos
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
                 objetivo.escudo = 0; // Rompe escudo primero
-                let danio = Math.floor(atacante.ataque * 2.5);
-                this.aplicarDanioDirecto(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 2.5 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanioDirecto(objetivo, danio);
                 resultado.efectos.push({
                     tipo: "rompe_escudo",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     escudoRoto: true,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "dmg_def_scaling": {
-                // Daño basado en Defensa
+                // Daño basado en Defensa * multiplicador pasiva
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.defensa * 2);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.defensa * 2 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 resultado.efectos.push({
                     tipo: "danio_defensa",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
@@ -698,154 +761,172 @@ function Sistema(test) {
                 if (objetivosVivos.length > 0) {
                     let objetivoRandom = objetivosVivos[Math.floor(Math.random() * objetivosVivos.length)];
                     let idx = equipoRival.indexOf(objetivoRandom);
-                    let danio = Math.floor(atacante.ataque * 3);
-                    this.aplicarDanio(objetivoRandom, danio);
+                    let danio = Math.floor(atacante.ataque * 3 * multiplicadorPasiva);
+                    let resDanio = this.aplicarDanio(objetivoRandom, danio);
                     resultado.efectos.push({
                         tipo: "danio_aleatorio",
                         objetivo: objetivoRandom.nombre,
                         indice: idx,
-                        danio: danio,
+                        danio: resDanio.danioReal,
                         vidaRestante: objetivoRandom.vidaActual,
-                        derrotado: objetivoRandom.estado === "derrotado"
+                        derrotado: objetivoRandom.estado === "derrotado",
+                        revivido: resDanio.revivido
                     });
                 }
                 break;
             }
             
             case "lifesteal_major": {
-                // Robo de vida masivo
+                // Robo de vida masivo * multiplicador pasiva
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 2.5);
-                this.aplicarDanio(objetivo, danio);
-                let curacion = Math.floor(danio * 0.5);
+                let danio = Math.floor(atacante.ataque * 2.5 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
+                let curacion = Math.floor(resDanio.danioReal * 0.5);
                 atacante.vidaActual = Math.min(atacante.vidaActual + curacion, atacante.vida);
                 resultado.efectos.push({
                     tipo: "robo_vida",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     vidaRobada: curacion,
                     vidaRestanteAtacante: atacante.vidaActual,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "dmg_poison_strong": {
-                // Veneno fuerte
+                // Veneno fuerte * multiplicador pasiva
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 1.2);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 1.2 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 objetivo.estados = objetivo.estados || [];
                 objetivo.estados.push({ tipo: "envenenado", duracion: 4, danioPorTurno: Math.floor(atacante.ataque * 0.2) });
                 resultado.efectos.push({
                     tipo: "veneno",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     envenenado: true,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "dmg_execute": {
-                // Ejecuta si <50% HP
+                // Ejecuta si <50% HP (verifica invulnerabilidad)
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
+                }
+                // Verificar invulnerabilidad
+                if (this.tieneEstado(objetivo, "invulnerable")) {
+                    resultado.efectos.push({
+                        tipo: "bloqueado",
+                        objetivo: objetivo.nombre,
+                        indice: indiceObjetivo,
+                        mensaje: `${objetivo.nombre} es invulnerable!`
+                    });
+                    break;
                 }
                 let porcentajeVida = objetivo.vidaActual / objetivo.vida;
                 let danio;
                 if (porcentajeVida < 0.5) {
                     danio = objetivo.vidaActual; // Ejecución
-                    this.aplicarDanioDirecto(objetivo, danio);
+                    let resDanio = this.aplicarDanioDirecto(objetivo, danio);
                     resultado.efectos.push({
                         tipo: "ejecucion",
                         objetivo: objetivo.nombre,
                         indice: indiceObjetivo,
-                        danio: danio,
+                        danio: resDanio.danioReal,
                         ejecutado: true,
                         vidaRestante: objetivo.vidaActual,
-                        derrotado: objetivo.estado === "derrotado"
+                        derrotado: objetivo.estado === "derrotado",
+                        revivido: resDanio.revivido
                     });
                 } else {
-                    danio = Math.floor(atacante.ataque * 2);
-                    this.aplicarDanio(objetivo, danio);
+                    danio = Math.floor(atacante.ataque * 2 * multiplicadorPasiva);
+                    let resDanio = this.aplicarDanio(objetivo, danio);
                     resultado.efectos.push({
                         tipo: "danio",
                         objetivo: objetivo.nombre,
                         indice: indiceObjetivo,
-                        danio: danio,
+                        danio: resDanio.danioReal,
                         ejecutado: false,
                         vidaRestante: objetivo.vidaActual,
-                        derrotado: objetivo.estado === "derrotado"
+                        derrotado: objetivo.estado === "derrotado",
+                        revivido: resDanio.revivido
                     });
                 }
                 break;
             }
             
             case "anti_heal": {
-                // Impide curación
+                // Impide curación * multiplicador pasiva
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 1.8);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 1.8 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 objetivo.estados = objetivo.estados || [];
                 objetivo.estados.push({ tipo: "anti_curacion", duracion: 3 });
                 resultado.efectos.push({
                     tipo: "anti_curacion",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     antiCuracion: true,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
             
             case "dmg_multi_2": {
-                // Daña a 2 enemigos
+                // Daña a 2 enemigos * multiplicador pasiva
                 let objetivosVivos = equipoRival.filter(e => e.estado !== "derrotado");
-                let danio = Math.floor(atacante.ataque * 1.5);
+                let danio = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
                 objetivosVivos.slice(0, 2).forEach(enemigo => {
                     let idx = equipoRival.indexOf(enemigo);
-                    this.aplicarDanio(enemigo, danio);
+                    let resDanio = this.aplicarDanio(enemigo, danio);
                     resultado.efectos.push({
                         tipo: "danio_doble",
                         objetivo: enemigo.nombre,
                         indice: idx,
-                        danio: danio,
+                        danio: resDanio.danioReal,
                         vidaRestante: enemigo.vidaActual,
-                        derrotado: enemigo.estado === "derrotado"
+                        derrotado: enemigo.estado === "derrotado",
+                        revivido: resDanio.revivido
                     });
                 });
                 break;
             }
             
             case "dmg_bounce": {
-                // Daño y devuelve carta (reducción de maná)
+                // Daño * multiplicador pasiva y devuelve carta (reducción de maná)
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 1.5);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 objetivo.mana = Math.max(0, objetivo.mana - 2);
                 resultado.efectos.push({
                     tipo: "danio_rebote",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     manaReducido: 2,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
@@ -867,22 +948,23 @@ function Sistema(test) {
             }
             
             case "dmg_shield": {
-                // Daño y Escudo
+                // Daño * multiplicador pasiva y Escudo
                 if (!objetivo || objetivo.estado === "derrotado") {
                     return { error: true, mensaje: "Objetivo inválido" };
                 }
-                let danio = Math.floor(atacante.ataque * 1.5);
-                this.aplicarDanio(objetivo, danio);
+                let danio = Math.floor(atacante.ataque * 1.5 * multiplicadorPasiva);
+                let resDanio = this.aplicarDanio(objetivo, danio);
                 let escudo = Math.floor(atacante.vida * 0.3);
                 atacante.escudo = (atacante.escudo || 0) + escudo;
                 resultado.efectos.push({
                     tipo: "danio_escudo",
                     objetivo: objetivo.nombre,
                     indice: indiceObjetivo,
-                    danio: danio,
+                    danio: resDanio.danioReal,
                     escudoGanado: escudo,
                     vidaRestante: objetivo.vidaActual,
-                    derrotado: objetivo.estado === "derrotado"
+                    derrotado: objetivo.estado === "derrotado",
+                    revivido: resDanio.revivido
                 });
                 break;
             }
@@ -892,6 +974,11 @@ function Sistema(test) {
                     tipo: "desconocido",
                     mensaje: `Efecto '${codigoEfecto}' no implementado`
                 });
+        }
+        
+        // === v2.0: Añadir efectos de pasiva al resultado ===
+        if (pasivaAtacante && pasivaAtacante.aplicada) {
+            resultado.pasivaAtacanteEfectos = pasivaAtacante.efectos || [];
         }
         
         // Verificar victoria
@@ -912,6 +999,12 @@ function Sistema(test) {
             let efectosEstadosDefensor = this.procesarEstadosTurno(defensorJugador.equipo, true);
             if (efectosEstadosDefensor.length > 0) {
                 resultado.efectosEstados = efectosEstadosDefensor;
+            }
+            
+            // === v2.0: Procesar pasivas de inicio de turno del defensor ===
+            let efectosInicioTurno = this.procesarPasivasInicioTurno(defensorJugador.equipo);
+            if (efectosInicioTurno.length > 0) {
+                resultado.efectosInicioTurno = efectosInicioTurno;
             }
             
             // Verificar si alguien murió por efectos de estado
@@ -937,49 +1030,123 @@ function Sistema(test) {
         return resultado;
     }
     
-    // Aplica daño considerando defensa
-    this.aplicarDanio = function(objetivo, danio) {
+    // ==================== SISTEMA DE DAÑO CENTRALIZADO v2.0 ====================
+    // Aplica daño considerando: invulnerabilidad, escudo, defensa, y muerte con revivir
+    this.aplicarDanio = function(objetivo, danio, contexto = {}) {
+        // 1. Verificar invulnerabilidad
+        if (this.tieneEstado(objetivo, "invulnerable")) {
+            return { danioReal: 0, bloqueado: true, mensaje: `${objetivo.nombre} es invulnerable!` };
+        }
+        
+        // 2. Calcular daño real considerando defensa
         let danioReal = Math.max(1, Math.floor(danio - objetivo.defensa * 0.5));
         
-        // Primero daña escudo
+        // 3. Absorber con escudo primero
+        let escudoAbsorbido = 0;
         if (objetivo.escudo && objetivo.escudo > 0) {
             if (objetivo.escudo >= danioReal) {
+                escudoAbsorbido = danioReal;
                 objetivo.escudo -= danioReal;
-                return 0;
+                danioReal = 0;
             } else {
+                escudoAbsorbido = objetivo.escudo;
                 danioReal -= objetivo.escudo;
                 objetivo.escudo = 0;
             }
         }
         
+        // 4. Aplicar daño a vida
         objetivo.vidaActual -= danioReal;
+        
+        let resultado = {
+            danioReal: danioReal,
+            escudoAbsorbido: escudoAbsorbido,
+            derrotado: false,
+            revivido: false,
+            mensaje: null
+        };
+        
+        // 5. Verificar muerte y pasiva de revivir
         if (objetivo.vidaActual <= 0) {
             objetivo.vidaActual = 0;
-            objetivo.estado = "derrotado";
+            
+            // Intentar revivir con pasiva
+            let pasivaRevivir = this.checkPasiva(objetivo, "morir", contexto);
+            if (pasivaRevivir && pasivaRevivir.revivido) {
+                resultado.revivido = true;
+                resultado.mensaje = pasivaRevivir.efectos[0]?.mensaje || `${objetivo.nombre} ha revivido!`;
+                // La pasiva ya restauró la vida
+            } else {
+                objetivo.estado = "derrotado";
+                resultado.derrotado = true;
+            }
         }
         
-        // +1 maná al recibir daño
-        if (objetivo.mana < objetivo.manaMax && objetivo.estado !== "derrotado") {
+        // 6. +1 maná al recibir daño (si sigue vivo)
+        if (objetivo.estado !== "derrotado" && objetivo.mana < objetivo.manaMax && danioReal > 0) {
             objetivo.mana = Math.min(objetivo.mana + 1, objetivo.manaMax);
         }
         
-        return danioReal;
+        return resultado;
     }
     
-    // Aplica daño directo (ignora defensa y escudo)
-    this.aplicarDanioDirecto = function(objetivo, danio) {
-        objetivo.vidaActual -= danio;
-        if (objetivo.vidaActual <= 0) {
-            objetivo.vidaActual = 0;
-            objetivo.estado = "derrotado";
+    // Aplica daño directo (ignora defensa pero respeta invulnerabilidad y revivir)
+    this.aplicarDanioDirecto = function(objetivo, danio, contexto = {}) {
+        // 1. Verificar invulnerabilidad
+        if (this.tieneEstado(objetivo, "invulnerable")) {
+            return { danioReal: 0, bloqueado: true, mensaje: `${objetivo.nombre} es invulnerable!` };
         }
         
-        // +1 maná al recibir daño
-        if (objetivo.mana < objetivo.manaMax && objetivo.estado !== "derrotado") {
+        // 2. Aplicar daño directo
+        objetivo.vidaActual -= danio;
+        
+        let resultado = {
+            danioReal: danio,
+            derrotado: false,
+            revivido: false,
+            mensaje: null
+        };
+        
+        // 3. Verificar muerte y pasiva de revivir
+        if (objetivo.vidaActual <= 0) {
+            objetivo.vidaActual = 0;
+            
+            let pasivaRevivir = this.checkPasiva(objetivo, "morir", contexto);
+            if (pasivaRevivir && pasivaRevivir.revivido) {
+                resultado.revivido = true;
+                resultado.mensaje = pasivaRevivir.efectos[0]?.mensaje || `${objetivo.nombre} ha revivido!`;
+            } else {
+                objetivo.estado = "derrotado";
+                resultado.derrotado = true;
+            }
+        }
+        
+        // 4. +1 maná al recibir daño
+        if (objetivo.estado !== "derrotado" && objetivo.mana < objetivo.manaMax) {
             objetivo.mana = Math.min(objetivo.mana + 1, objetivo.manaMax);
         }
         
-        return danio;
+        return resultado;
+    }
+
+    // ==================== SISTEMA DE PASIVAS DE INICIO DE TURNO v2.0 ====================
+    // Procesa pasivas al inicio del turno de un equipo
+    this.procesarPasivasInicioTurno = function(equipo) {
+        let efectosAplicados = [];
+        
+        equipo.forEach((personaje, idx) => {
+            if (personaje.estado === "derrotado") return;
+            
+            let pasiva = this.checkPasiva(personaje, "inicio_turno", { equipoAliado: equipo });
+            if (pasiva && pasiva.aplicada) {
+                pasiva.efectos.forEach(efecto => {
+                    efecto.indice = idx;
+                    efectosAplicados.push(efecto);
+                });
+            }
+        });
+        
+        return efectosAplicados;
     }
 
     // ==================== SISTEMA DE ESTADOS v2.0 ====================
@@ -1650,19 +1817,51 @@ function Sistema(test) {
         }
         
         let jugador = partida.jugadores.find(j => j.nick === nick);
-        if (!jugador) return null;
+        let rival = partida.jugadores.find(j => j.nick !== nick);
+        if (!jugador || !rival) return null;
         
         let luchador = jugador.equipo[indiceLuchador];
         if (!luchador || luchador.estado === "derrotado") {
             return null;
         }
         
+        // === v2.0: Verificar si puede actuar (estados de control) ===
+        if (!this.puedeActuar(luchador)) {
+            // Consumir el turno igualmente pero informar
+            let estadoImpide = luchador.estados.find(e => 
+                ["congelado", "aturdido", "paralizado", "dormido"].includes(e.tipo)
+            );
+            
+            partida.turno = rival.nick;
+            partida.turnoInicio = Date.now();
+            
+            return {
+                accion: "defender",
+                jugador: nick,
+                indiceLuchador: indiceLuchador,
+                luchadorNombre: luchador.nombre,
+                noPuedeActuar: true,
+                razon: estadoImpide ? estadoImpide.tipo : "estado",
+                turno: partida.turno,
+                estadoMesa: this.obtenerEstadoMesa(codigo)
+            };
+        }
+        
         luchador.estaDefendiendo = true;
         
+        // === v2.0: Ejecutar pasiva de defender ===
+        let pasivaDefender = this.checkPasiva(luchador, "defender", { equipoAliado: jugador.equipo });
+        let efectosPasiva = pasivaDefender ? pasivaDefender.efectos : [];
+        
         // Cambiar turno
-        let rival = partida.jugadores.find(j => j.nick !== nick);
         partida.turno = rival.nick;
         partida.turnoInicio = Date.now();
+        
+        // === v2.0: Procesar pasivas de inicio de turno del rival ===
+        let efectosInicioTurno = this.procesarPasivasInicioTurno(rival.equipo);
+        
+        // === v2.0: Procesar estados del rival (veneno, quemado, etc.) ===
+        let efectosEstados = this.procesarEstadosTurno(rival.equipo, true);
         
         return {
             accion: "defender",
@@ -1670,6 +1869,9 @@ function Sistema(test) {
             indiceLuchador: indiceLuchador,
             luchadorNombre: luchador.nombre,
             turno: partida.turno,
+            pasivaDefenderEfectos: efectosPasiva,
+            efectosInicioTurno: efectosInicioTurno,
+            efectosEstados: efectosEstados,
             estadoMesa: this.obtenerEstadoMesa(codigo)
         };
     }
@@ -1703,6 +1905,26 @@ function Sistema(test) {
         
         let atacante = atacanteJugador.equipo[indiceAtacante];
         let defensor = defensorJugador.equipo[indiceObjetivo];
+        
+        // === v2.0: Verificar si puede actuar ===
+        if (!this.puedeActuar(atacante)) {
+            let estadoImpide = atacante.estados?.find(e => 
+                ["congelado", "aturdido", "paralizado", "dormido"].includes(e.tipo)
+            );
+            
+            // Consumir turno
+            partida.turno = defensorJugador.nick;
+            partida.turnoInicio = Date.now();
+            
+            return {
+                accion: "atacar",
+                noPuedeActuar: true,
+                razon: estadoImpide ? estadoImpide.tipo : "estado",
+                atacante: { nick: nick, indice: indiceAtacante, nombre: atacante.nombre },
+                turno: partida.turno,
+                estadoMesa: this.obtenerEstadoMesa(codigo)
+            };
+        }
         
         // Validar que los personajes estén activos
         if (atacante.estado === "derrotado") {
