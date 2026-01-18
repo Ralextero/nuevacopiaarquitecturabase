@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MITICALITY - Realm of Legends</title>
+    <link rel="icon" type="image/png" href="/cliente/img/monedaIco.png">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js" integrity="sha512-8BHxHDLsOHx+flIrQ0DrZcea7MkHqRU5GbTHmbdzMRnAaoCIkZ97PqZcXJkKZckMMhqfoeaJE+DNUVuyoQsO3Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js" integrity="sha512-3j3VU6WC5rPQB4Ld1jnLV7Kd5xr+cq9avvhwqzbH/taCRNURoeEpoPBK9pDyeukwSxwRPJ8fDgvYXd6SkaZ2TA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="/cliente/clienteRest.js"></script>
+    <script src="/cliente/clienteWS.js"></script>
+    <script src="/cliente/controlWeb.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+    <!-- Gacha Premium CSS -->
+    <link rel="stylesheet" href="/cliente/estilo.css">
+    <!-- Google Fonts - Fantasía Arcana -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Cinzel+Decorative:wght@400;700;900&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+    <!-- Popper JS -->
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Stripe.js -->
+    <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+    <div id="g_id_onload"
+        data-client_id="206106532015-r8rii91trt5r7bpmpj2u8q2fbc4hd22o.apps.googleusercontent.com"
+        data-login_uri="/oneTap/callback"
+        data-skip_prompt_cookie="nick">
+    </div>
+
+    <!-- ==================== SECCIÓN INICIO (Pantalla de Bienvenida) ==================== -->
+    <section id="sec-inicio" class="spa-section active">
+        <!-- Video de fondo -->
+        <div class="intro-video-container">
+            <video autoplay muted loop playsinline id="introVideo" class="intro-video">
+                <source src="/cliente/img/videoIntro.mp4" type="video/mp4">
+            </video>
+            <div class="intro-video-overlay"></div>
+        </div>
+        
+        <!-- Contenido de inicio -->
+        <div class="intro-content">
+            <img src="/cliente/img/logo%20bueno.png" alt="Realm of Legends" class="intro-logo breathing-animation" 
+                 onerror="this.style.display='none'">
+            <h1 class="intro-title arcane-title" id="introTitleFallback" style="display:none;">⚔️ REALM OF LEGENDS ⚔️</h1>
+            
+            <!-- Formulario Login/Registro integrado en inicio -->
+            <div id="introAuthContainer" class="intro-auth-container">
+                <div id="registro" class="intro-auth-forms"></div>
+                <div id="msg"></div>
+            </div>
+            
+            <!-- Botón ENTRAR (solo visible cuando hay sesión) -->
+            <button id="btnEntrarJuego" class="btn-enter-epic" style="display:none;">
+                <span class="btn-enter-text">ENTRAR</span>
+                <span class="btn-enter-glow"></span>
+            </button>
+        </div>
+    </section>
+
+    <!-- ==================== SECCIÓN BATALLA (Lobby y Combate) ==================== -->
+    <section id="sec-batalla" class="spa-section">
+        <div class="section-content">
+            <div class="container-fluid py-4">
+                <!-- Header de sección con icono animado -->
+                <div class="section-header text-center batalla-header">
+                    <div class="batalla-title-container">
+                        <div class="batalla-sword left">⚔️</div>
+                        <h2 class="text-gradient batalla-main-title">Arena de Batalla</h2>
+                        <div class="batalla-sword right">⚔️</div>
+                    </div>
+                    <p class="text-secondary batalla-subtitle">Desafía a otros jugadores en combates épicos 3v3</p>
+                    <div class="batalla-divider"></div>
+                </div>
+                
+                <!-- Contenido de batalla -->
+                <div id="batallaContent">
+                    <!-- Zona de Partidas -->
+                    <div class="row batalla-lobby">
+                        <div class="col-lg-5 mb-4">
+                            <div class="batalla-card glass-card p-4 fade-in text-center">
+                                <div class="batalla-card-icon">🏟️</div>
+                                <h4 class="text-gradient mb-3">Nueva Batalla</h4>
+                                <p class="text-secondary mb-3">Crea una partida y espera a un rival valiente</p>
+                                <div id="divCrearPartida"></div>
+                            </div>
+                        </div>
+                        <div class="col-lg-7 mb-4">
+                            <div class="batalla-card glass-card p-4 fade-in">
+                                <div class="batalla-card-header">
+                                    <span class="batalla-card-icon">📜</span>
+                                    <h4 class="text-gradient mb-0">Batallas Disponibles</h4>
+                                </div>
+                                <div class="batalla-list-container mt-3" id="divListaPartidas">
+                                    <div class="text-center text-secondary py-4">
+                                        <div class="spinner-border spinner-border-sm mb-2" role="status"></div>
+                                        <p class="mb-0">Buscando batallas...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== SECCIÓN GACHA (Invocaciones) ==================== -->
+    <section id="sec-gacha" class="spa-section">
+        <div class="section-content">
+            <div class="container-fluid py-4">
+                <div class="section-header text-center">
+                    <h2 class="text-gradient">🔮 Portal de Invocación</h2>
+                    <p class="text-secondary">Invoca héroes legendarios para tu colección</p>
+                    <div class="coins-display-gacha mt-3">
+                        <img src="/cliente/img/monedaIco.png" class="coin-icon" onerror="this.outerHTML='🪙'">
+                        <span id="coinsDisplayGacha">0</span> monedas
+                    </div>
+                </div>
+                
+                <!-- Botones de invocación épicos -->
+                <div class="gacha-buttons-container">
+                    <div class="gacha-option">
+                        <div class="gacha-orb gacha-orb-single">
+                            <div class="gacha-orb-inner"></div>
+                        </div>
+                        <button id="btnInvocar" class="btn-aurora">
+                            ⚜️ INVOCAR x1
+                        </button>
+                        <small class="gacha-cost">100 monedas</small>
+                    </div>
+                    
+                    <div class="gacha-option">
+                        <div class="gacha-orb gacha-orb-multi">
+                            <div class="gacha-orb-inner"></div>
+                        </div>
+                        <button id="btnInvocarx10" class="btn-surge">
+                            🔱 INVOCAR x10
+                        </button>
+                        <small class="gacha-cost">900 monedas</small>
+                    </div>
+                    
+                    <div class="gacha-option">
+                        <div class="gacha-orb gacha-orb-mega">
+                            <div class="gacha-orb-inner"></div>
+                        </div>
+                        <button id="btnInvocarx100" class="btn-inferno">
+                            💎 INVOCAR x100
+                        </button>
+                        <small class="gacha-cost">8000 monedas <span class="text-success">(20% dto.)</span></small>
+                    </div>
+                </div>
+                
+                <!-- Probabilidades -->
+                <div class="gacha-rates glass-card p-3 mt-4">
+                    <h5 class="text-gradient">📊 Probabilidades</h5>
+                    <div class="rates-grid">
+                        <div class="rate-item"><span class="rate-rarity ur">UR</span> 0.5%</div>
+                        <div class="rate-item"><span class="rate-rarity ssr">SSR</span> 3.5%</div>
+                        <div class="rate-item"><span class="rate-rarity raro">Raro</span> 20%</div>
+                        <div class="rate-item"><span class="rate-rarity comun">Común</span> 76%</div>
+                    </div>
+                </div>
+
+                <!-- ==================== BANNER DE ARMERÍA ==================== -->
+                <div class="armory-divider mt-5 mb-4">
+                    <span class="divider-line"></span>
+                    <span class="divider-text">🛡️ ARMERÍA 🗡️</span>
+                    <span class="divider-line"></span>
+                </div>
+
+                <div class="section-header text-center">
+                    <h3 class="text-gradient-gold">⚔️ Portal de Armería</h3>
+                    <p class="text-secondary">Forja equipamiento legendario para tus héroes</p>
+                </div>
+
+                <!-- Botones de invocación de equipamiento -->
+                <div class="gacha-buttons-container armory-buttons">
+                    <div class="gacha-option">
+                        <div class="gacha-orb gacha-orb-armor">
+                            <div class="gacha-orb-inner armor-inner">🛡️</div>
+                        </div>
+                        <button id="btnInvocarEquip1" class="btn-aurora btn-armor" onclick="cw.invocarEquipamiento(1)">
+                            🛡️ FORJAR x1
+                        </button>
+                        <small class="gacha-cost">200 monedas</small>
+                    </div>
+                    
+                    <div class="gacha-option">
+                        <div class="gacha-orb gacha-orb-armor">
+                            <div class="gacha-orb-inner armor-inner">⚔️</div>
+                        </div>
+                        <button id="btnInvocarEquip10" class="btn-surge btn-armor" onclick="cw.invocarEquipamiento(10)">
+                            ⚔️ FORJAR x10
+                        </button>
+                        <small class="gacha-cost">1800 monedas</small>
+                    </div>
+                    
+                    <div class="gacha-option">
+                        <div class="gacha-orb gacha-orb-armor">
+                            <div class="gacha-orb-inner armor-inner">👑</div>
+                        </div>
+                        <button id="btnInvocarEquip100" class="btn-inferno btn-armor" onclick="cw.invocarEquipamiento(100)">
+                            👑 FORJAR x100
+                        </button>
+                        <small class="gacha-cost">16000 monedas <span class="text-success">(20% dto.)</span></small>
+                    </div>
+                </div>
+
+                <!-- Probabilidades equipamiento -->
+                <div class="gacha-rates glass-card p-3 mt-4">
+                    <h5 class="text-gradient-gold">📊 Probabilidades de Equipamiento</h5>
+                    <div class="rates-grid">
+                        <div class="rate-item"><span class="rate-rarity ssr">SSR</span> 2.5%</div>
+                        <div class="rate-item"><span class="rate-rarity raro">Raro</span> 47.5%</div>
+                        <div class="rate-item"><span class="rate-rarity comun">Común</span> 50%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== SECCIÓN INVENTARIO (Colección) ==================== -->
+    <section id="sec-inventario" class="spa-section">
+        <div class="section-content">
+            <div class="container-fluid py-4">
+                <div class="section-header">
+                    <h2 class="text-gradient">📚 Tu Colección</h2>
+                    <p class="text-secondary">Gestiona tus héroes y mejóralos</p>
+                    <div class="poder-display mt-2">
+                        <span class="poder-label">⚡ PODER TOTAL:</span>
+                        <span id="poderDisplayInventario" class="poder-value">0</span>
+                    </div>
+                </div>
+                
+                <!-- Grid de inventario completo -->
+                <div class="glass-card p-4">
+                    <div class="inventory-filters mb-3">
+                        <button class="filter-btn active" data-filter="all">Todos</button>
+                        <button class="filter-btn" data-filter="ur">UR</button>
+                        <button class="filter-btn" data-filter="ssr">SSR</button>
+                        <button class="filter-btn" data-filter="raro">Raro</button>
+                        <button class="filter-btn" data-filter="comun">Común</button>
+                        <button class="btn-mejorar-todos" id="btnMejorarTodos" onclick="cw.confirmarMejorarTodos()" title="Evolucionar automáticamente todos los personajes al máximo">
+                            ⬆️ Mejorar Todos
+                        </button>
+                    </div>
+                    <div class="inventory-grid-full" id="inventoryGridFull"></div>
+                </div>
+
+                <!-- ==================== SECCIÓN ARSENAL / EQUIPAMIENTO ==================== -->
+                <div class="armory-divider mt-5 mb-4">
+                    <span class="divider-line"></span>
+                    <span class="divider-text">🛡️ ARSENAL 🗡️</span>
+                    <span class="divider-line"></span>
+                </div>
+
+                <div class="glass-card p-4">
+                    <!-- Contador de inventario -->
+                    <div class="inventory-counter-container mb-3">
+                        <span class="inventory-counter">
+                            📦 Inventario: <span id="equipCountActual">0</span>/<span id="equipCountMax">300</span>
+                        </span>
+                    </div>
+                    <div class="inventory-filters mb-3">
+                        <button class="filter-btn-equip active" data-filter="all" onclick="cw.filtrarEquipamiento('all')">Todos</button>
+                        <button class="filter-btn-equip" data-filter="casco" onclick="cw.filtrarEquipamiento('casco')">🪖 Cascos</button>
+                        <button class="filter-btn-equip" data-filter="pechera" onclick="cw.filtrarEquipamiento('pechera')">🦺 Pecheras</button>
+                        <button class="filter-btn-equip" data-filter="pantalones" onclick="cw.filtrarEquipamiento('pantalones')">👖 Pantalones</button>
+                        <button class="filter-btn-equip" data-filter="zapatos" onclick="cw.filtrarEquipamiento('zapatos')">👟 Zapatos</button>
+                        <button class="filter-btn-equip" data-filter="arma" onclick="cw.filtrarEquipamiento('arma')">⚔️ Armas</button>
+                    </div>
+                    <div class="equipment-grid" id="equipmentGrid"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== SECCIÓN PERFIL (Datos de Usuario) ==================== -->
+    <section id="sec-perfil" class="spa-section">
+        <div class="section-content">
+            <div class="container-fluid py-4">
+                <div class="section-header text-center">
+                    <h2 class="text-gradient">👤 Tu Perfil</h2>
+                </div>
+                
+                <div class="profile-container glass-card p-4">
+                    <!-- Avatar -->
+                    <div class="profile-avatar-section">
+                        <div class="profile-avatar-frame" onclick="cw.abrirSelectorAvatar()">
+                            <img id="profileAvatar" src="/cliente/img/perfilPorDefecto.png" 
+                                 class="profile-avatar-img" alt="Avatar"
+                                 onerror="this.src='/cliente/img/perfilPorDefecto.png'">
+                            <div class="avatar-edit-overlay">
+                                <span>✏️ Cambiar</span>
+                            </div>
+                        </div>
+                        <p class="text-secondary mt-2">Haz clic para cambiar tu avatar</p>
+                    </div>
+                    
+                    <!-- Datos del usuario -->
+                    <div class="profile-info">
+                        <div class="profile-stat profile-stat-nick">
+                            <span class="stat-label">Nick:</span>
+                            <div class="nick-edit-container">
+                                <span id="profileNick" class="stat-value text-gradient" onclick="cw.editarNick()">---</span>
+                                <button class="nick-edit-btn" onclick="cw.editarNick()" title="Editar nick">✏️</button>
+                            </div>
+                        </div>
+                        <div class="profile-stat">
+                            <span class="stat-label">Monedas:</span>
+                            <span id="profileCoins" class="stat-value">
+                                <img src="/cliente/img/monedaIco.png" class="coin-icon-small" onerror="this.outerHTML='🪙'">
+                                <span id="coinsDisplayPerfil">0</span>
+                            </span>
+                        </div>
+                        <div class="profile-stat">
+                            <span class="stat-label">Héroes:</span>
+                            <span id="profileHeroes" class="stat-value">0</span>
+                        </div>
+                        <div class="profile-stat">
+                            <span class="stat-label">Poder Total:</span>
+                            <span id="profilePoder" class="stat-value text-warning">0</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Botón salir -->
+                    <div class="profile-actions mt-4">
+                        <button id="btnSalir" class="btn-surge">🚪 Cerrar Sesión</button>
+                    </div>
+                </div>
+                
+                <!-- Selector de Avatar Modal -->
+                <div id="avatarSelectorModal" class="avatar-selector-modal" style="display:none;">
+                    <div class="avatar-selector-content glass-card">
+                        <h3 class="text-gradient">Selecciona tu Avatar</h3>
+                        <p class="text-secondary">Elige uno de tus héroes como avatar</p>
+                        <div class="avatar-selector-grid" id="avatarSelectorGrid"></div>
+                        <button class="btn-stone mt-3" onclick="cw.cerrarSelectorAvatar()">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== SECCIÓN TESORERÍA (Compra de Monedas) ==================== -->
+    <section id="sec-tesoreria" class="spa-section">
+        <div class="section-content">
+            <div class="container-fluid py-4">
+                <div class="section-header text-center">
+                    <h2 class="text-gradient">💎 Tesorería Real</h2>
+                    <p class="text-secondary">Adquiere monedas para invocar a los héroes más poderosos</p>
+                </div>
+                
+                <!-- Packs de Monedas -->
+                <div class="treasury-packs" id="treasuryPacks">
+                    <!-- Se renderiza dinámicamente -->
+                </div>
+                
+                <!-- Modal de Pago -->
+                <div id="paymentModal" class="payment-modal" style="display:none;">
+                    <div class="payment-modal-content glass-card">
+                        <div class="payment-header">
+                            <h3 class="text-gradient" id="paymentPackName">Pack Seleccionado</h3>
+                            <button class="payment-close-btn" onclick="cw.cerrarModalPago()">✕</button>
+                        </div>
+                        <div class="payment-body">
+                            <div class="payment-summary">
+                                <div class="payment-coins">
+                                    <img src="/cliente/img/monedaIco.png" class="payment-coin-icon" onerror="this.outerHTML='🪙'">
+                                    <span id="paymentCoins">0</span> Monedas
+                                </div>
+                                <div class="payment-price" id="paymentPrice">0.00€</div>
+                            </div>
+                            <div id="payment-element" class="payment-element-container">
+                                <!-- Stripe Element se monta aquí -->
+                            </div>
+                            <div id="payment-message" class="payment-message" style="display:none;"></div>
+                        </div>
+                        <div class="payment-footer">
+                            <button id="btnPagar" class="btn-legendary" onclick="cw.procesarPago()">
+                                <span id="btnPagarText">💳 Pagar Ahora</span>
+                                <span id="btnPagarSpinner" style="display:none;">⏳ Procesando...</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== NAVBAR INFERIOR (SPA Navigation) ==================== -->
+    <nav id="navbarBottom" class="navbar-bottom" style="display:none;">
+        <button class="nav-btn active" data-section="sec-inicio" onclick="cw.navegarA('sec-inicio')">
+            <img src="/cliente/img/inicioIco.png" class="nav-icon" onerror="this.outerHTML='🏠'">
+            <span>Inicio</span>
+        </button>
+        <button class="nav-btn" data-section="sec-batalla" onclick="cw.navegarA('sec-batalla')">
+            <img src="/cliente/img/combateIco.png" class="nav-icon" onerror="this.outerHTML='⚔️'">
+            <span>Batalla</span>
+        </button>
+        <button class="nav-btn" data-section="sec-gacha" onclick="cw.navegarA('sec-gacha')">
+            <img src="/cliente/img/summonsIco.png" class="nav-icon" onerror="this.outerHTML='🔮'">
+            <span>Invocar</span>
+        </button>
+        <button class="nav-btn" data-section="sec-tesoreria" onclick="cw.navegarA('sec-tesoreria')">
+            <img src="/cliente/img/monedaIco.png" class="nav-icon" onerror="this.outerHTML='💎'">
+            <span>Tesorería</span>
+        </button>
+        <button class="nav-btn" data-section="sec-inventario" onclick="cw.navegarA('sec-inventario')">
+            <img src="/cliente/img/inventarioIco.png" class="nav-icon" onerror="this.outerHTML='📚'">
+            <span>Colección</span>
+        </button>
+        <button class="nav-btn" data-section="sec-perfil" onclick="cw.navegarA('sec-perfil')">
+            <img src="/cliente/img/perfilIco.png" class="nav-icon" onerror="this.outerHTML='👤'">
+            <span>Perfil</span>
+        </button>
+    </nav>
+
+    <!-- ==================== HEADER SUPERIOR (visible después de login) ==================== -->
+    <header id="headerTop" class="header-top" style="display:none;">
+        <div class="header-left">
+            <div class="header-avatar" onclick="cw.navegarA('sec-perfil')">
+                <img id="headerAvatarImg" src="/cliente/img/perfilPorDefecto.png" 
+                     class="header-avatar-img" alt="Avatar"
+                     onerror="this.src='/cliente/img/perfilPorDefecto.png'">
+            </div>
+            <span class="header-title arcane-title">⚔️ MITICALITY - REALM OF LEGENDS</span>
+        </div>
+        <div class="header-right">
+            <div class="coins-badge-header">
+                <img src="/cliente/img/monedaIco.png" class="coin-icon-header" onerror="this.outerHTML='🪙'">
+                <span id="coinsDisplay">0</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Modal Gacha -->
+    <div class="gacha-modal" id="gachaModal">
+        <div class="gacha-container">
+            <div class="gacha-egg" id="gachaEgg"></div>
+            <p class="mt-4 text-secondary" id="gachaText">Invocando...</p>
+        </div>
+    </div>
+
+    <!-- Modal Bootstrap para resultados -->
+    <div class="modal" id="miModal">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content glass-card" style="background: rgba(20, 20, 35, 0.95);">
+                <div class="modal-header border-0">
+                    <h4 class="modal-title text-gradient">¡Resultado!</h4>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body" id="mBody"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Arena de Batalla 3v3 -->
+    <div id="battleArena" class="battle-arena" style="display: none;">
+        <div class="battle-content">
+            <div class="turn-indicator" id="turnIndicator">Esperando...</div>
+                <!-- Barra visual de temporizador de turno -->
+                <div class="turn-timer-wrapper" id="turnTimerContainer" style="display:none;">
+                    <div class="turn-timer-track">
+                        <div class="turn-timer-bar" id="turnTimerBar"></div>
+                    </div>
+                </div>
+            
+            <!-- Chat volátil de batalla (solo durante combate) -->
+            <div id="chatBatalla" class="chat-batalla">
+                <div class="chat-header">
+                    <span>💬 Chat de Batalla</span>
+                    <button class="chat-toggle" onclick="cw.toggleChatBatalla()">−</button>
+                </div>
+                <div class="chat-messages" id="chatBatallaMessages"></div>
+                <div class="chat-input-container">
+                    <input type="text" id="chatBatallaInput" class="chat-input" placeholder="Mensaje al rival..." maxlength="150">
+                    <button class="chat-send" onclick="cw.enviarMensajeBatalla()">➤</button>
+                </div>
+            </div>
+            
+            <div class="container">
+                <div class="row align-items-center" style="min-height: 80vh;">
+                    <div class="col-md-4">
+                        <div class="team-container team-player slide-in-left">
+                            <div class="team-label">TU EQUIPO</div>
+                            <div id="playerTeam" class="d-flex flex-column align-items-center gap-3"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4 text-center">
+                        <div class="vs-badge mb-4">⚔️ VS ⚔️</div>
+                        <div class="battle-log" id="battleLog">
+                            <p class="text-muted">¡Que comience la batalla!</p>
+                        </div>
+                        <div class="battle-actions mt-4" id="battleActions">
+                            <div class="battle-actions-row">
+                                <button class="btn-attack" id="btnConfirmAttack" disabled>⚔️ ATACAR</button>
+                                <button class="btn-ultimate no-mana" id="btnUltimate" disabled title="Maná: 0/4">🌟 ULTIMATE</button>
+                            </div>
+                            <button class="btn-defend" id="btnDefend" disabled>🛡️ DEFENDER</button>
+                            <button class="btn-skip-turn" id="btnSkipTurn" style="display:none; background: linear-gradient(135deg, #6c757d, #495057); color: white; border: none; padding: 10px 20px; border-radius: 8px; margin-top: 10px; cursor: pointer;">⏭️ Saltar Turno</button>
+                        </div>
+                        <button class="btn btn-outline-danger mt-3" id="btnSurrender">🏳️ Rendirse</button>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="team-container team-enemy slide-in-right">
+                            <div class="team-label">RIVAL</div>
+                            <div id="enemyTeam" class="d-flex flex-column align-items-center gap-3"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contenedor legacy para compatibilidad -->
+    <div id="au" style="display:none;"></div>
+
+    <!-- Modal para selección de equipamiento -->
+    <div class="modal fade" id="equipmentSelectModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content glass-card" style="background: rgba(20, 20, 35, 0.98);">
+                <div class="modal-header border-0">
+                    <h4 class="modal-title text-gradient-gold">🛡️ Seleccionar Equipamiento</h4>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-secondary mb-3" id="equipSlotLabel">Selecciona un ítem para equipar:</p>
+                    <div class="equipment-select-grid" id="equipmentSelectGrid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de forja (resultados de equipamiento) -->
+    <div class="forge-modal" id="forgeModal">
+        <div class="forge-container">
+            <div class="forge-anvil" id="forgeAnvil">🔨</div>
+            <p class="mt-4 text-secondary" id="forgeText">Forjando...</p>
+        </div>
+    </div>
+
+<script>
+    $(document).ready(function() {
+        cw = new ControlWeb();
+        rest = new ClienteRest();
+        ws = new ClienteWS();
+        
+        // Comprobar si el logo carga, si no, mostrar título
+        $('.intro-logo').on('error', function() {
+            $(this).hide();
+            $('#introTitleFallback').show();
+        });
+        
+        // Inicializar SPA
+        cw.initSPA();
+    });
+</script>
+</body>
+</html>
